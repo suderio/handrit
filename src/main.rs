@@ -1,5 +1,5 @@
 mod rpn;
-use rpn::{convert_to_rpn, get_standard_operators, Operator};
+use rpn::{convert_to_rpn, get_standard_operators, Operator, evaluate, Token};
 
 use clap::{Arg, Command, Subcommand};
 use std::fs::File;
@@ -37,6 +37,16 @@ fn main() {
                     .help("The expression string or path to a file containing the expression.")
                     .required(true)),
         )
+        .subcommand(
+            Command::new("run")
+                .about("Evaluates expression")
+                .arg(Arg::new("input")
+                    .short('i')
+                    .long("input")
+                    .value_name("STRING or FILE")
+                    .help("The expression string or path to a file containing the expression.")
+                    .required(true)),
+        )
         .get_matches();
 
     let operators = get_standard_operators();
@@ -55,7 +65,23 @@ fn main() {
                 Err(e) => eprintln!("Error reading input: {}", e),
             }
         }
+        Some(("run", sub_m)) => {
+            let input = sub_m.get_one::<String>("input").unwrap();
+            match read_input(input) {
+                Ok(content) => print_result(evaluate(&content, &operators)),
+                Err(e) => eprintln!("Error reading input: {}", e),
+            }
+        }
         _ => unreachable!(),
+    }
+}
+fn print_result(result: Result<Token, String>) {
+    match result.unwrap() {
+        Token::Number(num) => println!("{} ", num),
+        Token::String(s) => println!("\"{}\" ", s),
+        Token::Variable(var) => println!("{} ", var),
+        Token::Operator(op, _) => println!("{} ", op),
+        _ => {}
     }
 }
 
@@ -71,7 +97,9 @@ fn repl_mode(operators: &[Operator]) {
         if trimmed == "exit" {
             break;
         }
-        println!("{}", convert_to_rpn(trimmed, operators));
+        // println!("{}", convert_to_rpn(trimmed, operators));
+        let result = evaluate(trimmed, operators);
+        print_result(result);
     }
 }
 
