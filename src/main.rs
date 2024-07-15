@@ -1,5 +1,5 @@
 mod rpn;
-use rpn::{convert_to_rpn, get_standard_operators, Operator, evaluate, Token};
+use rpn::{convert_to_rpn, evaluate, get_standard_operators, Operator, Token};
 
 use clap::{Arg, Command, Subcommand};
 use std::fs::File;
@@ -23,29 +23,28 @@ fn main() {
             Command::new("repl")
                 .about("Enter the REPL mode to evaluate expressions interactively."),
         )
-        .subcommand(
-            Command::new("build")
-                .about("Build the project (not yet implemented)."),
-        )
+        .subcommand(Command::new("build").about("Build the project (not yet implemented)."))
         .subcommand(
             Command::new("rpn")
                 .about("Convert infix, postfix, or prefix expressions to reverse polish notation.")
-                .arg(Arg::new("input")
-                    .short('i')
-                    .long("input")
-                    .value_name("STRING or FILE")
-                    .help("The expression string or path to a file containing the expression.")
-                    .required(true)),
+                .arg(
+                    Arg::new("input")
+                        .short('i')
+                        .long("input")
+                        .value_name("STRING or FILE")
+                        .help("The expression string or path to a file containing the expression.")
+                        .required(true),
+                ),
         )
         .subcommand(
-            Command::new("run")
-                .about("Evaluates expression")
-                .arg(Arg::new("input")
+            Command::new("run").about("Evaluates expression").arg(
+                Arg::new("input")
                     .short('i')
                     .long("input")
                     .value_name("STRING or FILE")
                     .help("The expression string or path to a file containing the expression.")
-                    .required(true)),
+                    .required(true),
+            ),
         )
         .get_matches();
 

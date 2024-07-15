@@ -1,6 +1,11 @@
 use bigdecimal::BigDecimal;
-use std::str::FromStr;
+use bigdecimal::FromPrimitive;
+use bigdecimal::ToPrimitive;
+use std::convert::From;
 use std::collections::HashMap;
+use std::str::FromStr;
+use std::ops::Neg;
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -8,6 +13,7 @@ pub enum Token {
     String(String),
     Variable(String),
     Operator(String, OperatorType),
+    List(Vec<Token>),
     LeftParen,
     RightParen,
 }
@@ -35,44 +41,59 @@ pub struct Operator {
 }
 
 fn op_add(stack: &mut Vec<Token>) {
-    let right = stack.pop().unwrap();
-    let left = stack.pop().unwrap();
-    if let (Token::Number(left_num), Token::Number(right_num)) = (left, right) {
-        stack.push(Token::Number(left_num + right_num));
-    } else {
-        panic!("Operation requires two numbers");
-    }
-
+    op_infix_number(stack, |left, right| left + right);
 }
 
 fn op_subtract(stack: &mut Vec<Token>) {
-    let right = stack.pop().unwrap();
-    let left = stack.pop().unwrap();
-    if let (Token::Number(left_num), Token::Number(right_num)) = (left, right) {
-        stack.push(Token::Number(left_num - right_num));
-    } else {
-        panic!("Operation requires two numbers");
-    }
-
+    op_infix_number(stack, |left, right| left - right);
 }
 
 fn op_multiply(stack: &mut Vec<Token>) {
-    let right = stack.pop().unwrap();
-    let left = stack.pop().unwrap();
-    if let (Token::Number(left_num), Token::Number(right_num)) = (left, right) {
-        stack.push(Token::Number(left_num * right_num));
-    } else {
-        panic!("Operation requires two numbers");
-    }
+    op_infix_number(stack, |left, right| left * right);
 }
 
 fn op_divide(stack: &mut Vec<Token>) {
+    op_infix_number(stack, |left, right| left / right);
+}
+
+fn op_modulo(stack: &mut Vec<Token>) {
+    op_infix_number(stack, |left, right| left % right);
+}
+
+fn op_pow(stack: &mut Vec<Token>) {
+    op_infix_number(stack, |mut left, right| {
+        for _ in 1..right.to_u128().expect("something") {
+            left *= left.clone();
+        }
+        left.clone()
+    });
+}
+
+fn op_minus(stack: &mut Vec<Token>) {
+    let right = stack.pop().unwrap();
+    match right {
+        Token::Number(right_num) => stack.push(Token::Number(-right_num)),
+        Token::String(right_str) => stack.push(Token::Number(
+            BigDecimal::from_usize(right_str.len()).unwrap().neg(),
+        )),
+        Token::List(right_list) => stack.push(Token::Number(
+            BigDecimal::from_usize(right_list.len())
+                .unwrap()
+                .neg(),
+        )),
+        _ => todo!(),
+    }
+}
+
+fn op_cons(stack: &mut Vec<Token>) {
     let right = stack.pop().unwrap();
     let left = stack.pop().unwrap();
-    if let (Token::Number(left_num), Token::Number(right_num)) = (left, right) {
-        stack.push(Token::Number(left_num / right_num));
-    } else {
-        panic!("Operation requires two numbers");
+    match left {
+        Token::List(mut left_list) => {
+            left_list.push(right);
+            stack.push(Token::List(left_list));
+        }
+        _ => stack.push(Token::List(vec![left, right])),
     }
 }
 
@@ -91,15 +112,59 @@ where
             stack.push(Token::Number(op(left_num, right_num)));
         }
         (Token::Number(left_num), Token::String(right_str)) => {
-            let result = op(left_num, from_usize(right_str.len()));
+            let result = op(
+                left_num,
+                BigDecimal::from_usize(right_str.len()).expect("something"),
+            );
             stack.push(Token::Number(BigDecimal::from(result)));
         }
         (Token::String(left_str), Token::Number(right_num)) => {
-            let result = op(from_usize(left_str.len()), right_num);
+            let result = op(
+                BigDecimal::from_usize(left_str.len()).expect("something"),
+                right_num,
+            );
             stack.push(Token::Number(BigDecimal::from(result)));
         }
         (Token::String(left_str), Token::String(right_str)) => {
-            let result = op(from_usize(left_str.len()), from_usize(right_str.len()));
+            let result = op(
+                BigDecimal::from_usize(left_str.len()).expect("something"),
+                BigDecimal::from_usize(right_str.len()).expect("something"),
+            );
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::List(left_list), Token::Number(right_num)) => {
+            let result = op(
+                BigDecimal::from_usize(left_list.len()).expect("something"),
+                right_num,
+            );
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::List(left_list), Token::String(right_str)) => {
+            let result = op(
+                BigDecimal::from_usize(left_list.len()).expect("something"),
+                BigDecimal::from_usize(right_str.len()).expect("something"),
+            );
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::Number(left_num), Token::List(right_list)) => {
+            let result = op(
+                left_num,
+                BigDecimal::from_usize(right_list.len()).expect("something"),
+            );
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::String(left_str), Token::List(right_list)) => {
+            let result = op(
+                BigDecimal::from_usize(left_str.len()).expect("something"),
+                BigDecimal::from_usize(right_list.len()).expect("something"),
+            );
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::List(left_list), Token::List(right_list)) => {
+            let result = op(
+                BigDecimal::from_usize(left_list.len()).expect("something"),
+                BigDecimal::from_usize(right_list.len()).expect("something"),
+            );
             stack.push(Token::Number(BigDecimal::from(result)));
         }
         (Token::Variable(_), _) | (_, Token::Variable(_)) => {
@@ -113,32 +178,174 @@ where
 
 pub fn get_standard_operators() -> Vec<Operator> {
     vec![
-        Operator { symbol: ":".to_string(), precedence: 1, assoc: Assoc::Right, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "||".to_string(), precedence: 3, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "&&".to_string(), precedence: 4, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "|".to_string(), precedence: 5, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "^".to_string(), precedence: 6, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "&".to_string(), precedence: 7, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "=".to_string(), precedence: 8, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "<>".to_string(), precedence: 8, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: ">".to_string(), precedence: 9, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "<".to_string(), precedence: 9, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: ">=".to_string(), precedence: 9, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "<=".to_string(), precedence: 9, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "+".to_string(), precedence: 11, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_add },
-        Operator { symbol: "-".to_string(), precedence: 11, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_subtract },
-        Operator { symbol: "$".to_string(), precedence: 11, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "*".to_string(), precedence: 12, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_multiply },
-        Operator { symbol: "/".to_string(), precedence: 12, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_divide },
-        Operator { symbol: "%".to_string(), precedence: 12, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "**".to_string(), precedence: 13, assoc: Assoc::Right, op_type: OperatorType::Infix, func: op_null },
-        Operator { symbol: "-".to_string(), precedence: 14, assoc: Assoc::Right, op_type: OperatorType::Prefix, func: op_null },
-        Operator { symbol: "+".to_string(), precedence: 14, assoc: Assoc::Right, op_type: OperatorType::Prefix, func: op_null },
-        Operator { symbol: "~".to_string(), precedence: 14, assoc: Assoc::Right, op_type: OperatorType::Prefix, func: op_null },
-        Operator { symbol: "?".to_string(), precedence: 16, assoc: Assoc::Left, op_type: OperatorType::Postfix, func: op_null },
-        Operator { symbol: ",".to_string(), precedence: 16, assoc: Assoc::Left, op_type: OperatorType::Infix, func: op_null },
-
-        
+        Operator {
+            symbol: ":".to_string(),
+            precedence: 1,
+            assoc: Assoc::Right,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "||".to_string(),
+            precedence: 3,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "&&".to_string(),
+            precedence: 4,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "|".to_string(),
+            precedence: 5,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "^".to_string(),
+            precedence: 6,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "&".to_string(),
+            precedence: 7,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "=".to_string(),
+            precedence: 8,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "<>".to_string(),
+            precedence: 8,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: ">".to_string(),
+            precedence: 9,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "<".to_string(),
+            precedence: 9,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: ">=".to_string(),
+            precedence: 9,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "<=".to_string(),
+            precedence: 9,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "+".to_string(),
+            precedence: 11,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_add,
+        },
+        Operator {
+            symbol: "-".to_string(),
+            precedence: 11,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_subtract,
+        },
+        Operator {
+            symbol: "$".to_string(),
+            precedence: 11,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "*".to_string(),
+            precedence: 12,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_multiply,
+        },
+        Operator {
+            symbol: "/".to_string(),
+            precedence: 12,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_divide,
+        },
+        Operator {
+            symbol: "%".to_string(),
+            precedence: 12,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_modulo,
+        },
+        Operator {
+            symbol: "**".to_string(),
+            precedence: 13,
+            assoc: Assoc::Right,
+            op_type: OperatorType::Infix,
+            func: op_pow,
+        },
+        Operator {
+            symbol: "-".to_string(),
+            precedence: 14,
+            assoc: Assoc::Right,
+            op_type: OperatorType::Prefix,
+            func: op_minus,
+        },
+        Operator {
+            symbol: "+".to_string(),
+            precedence: 14,
+            assoc: Assoc::Right,
+            op_type: OperatorType::Prefix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "~".to_string(),
+            precedence: 14,
+            assoc: Assoc::Right,
+            op_type: OperatorType::Prefix,
+            func: op_null,
+        },
+        Operator {
+            symbol: "?".to_string(),
+            precedence: 16,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Postfix,
+            func: op_null,
+        },
+        Operator {
+            symbol: ",".to_string(),
+            precedence: 16,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: op_cons,
+        },
         // Add more standard operators here
     ]
 }
@@ -201,7 +408,11 @@ fn tokenize(expression: &str, operators: &[Operator]) -> Vec<Token> {
             _ => {
                 let mut op = String::new();
                 while let Some(&next_ch) = chars.peek() {
-                    if next_ch.is_alphanumeric() || next_ch == ' ' || next_ch == '(' || next_ch == ')' {
+                    if next_ch.is_alphanumeric()
+                        || next_ch == ' '
+                        || next_ch == '('
+                        || next_ch == ')'
+                    {
                         break;
                     }
                     op.push(next_ch);
@@ -224,32 +435,35 @@ fn shunting_yard(tokens: Vec<Token>, operators: &[Operator]) -> Vec<Token> {
 
     for token in tokens {
         match token.clone() {
-            Token::Number(_) | Token::String(_) | Token::Variable(_) => output.push(token),
-            Token::Operator(op, op_type) => {
-                match op_type {
-                    OperatorType::Prefix => op_stack.push(token),
-                    OperatorType::Postfix => {
-                        output.push(token);
-                    }
-                    OperatorType::Infix => {
-                        while let Some(top_op) = op_stack.last() {
-                            if let Token::Operator(top_op_str, _) = top_op {
-                                if let Some(top_operator) = get_operator(top_op_str, operators) {
-                                    if (top_operator.assoc == Assoc::Left && top_operator.precedence >= precedence(&op, operators))
-                                        || (top_operator.assoc == Assoc::Right && top_operator.precedence > precedence(&op, operators)) {
-                                            output.push(op_stack.pop().unwrap());
-                                        } else {
-                                            break;
-                                        }
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-                        op_stack.push(token);
-                    }
-                }
+            Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) => {
+                output.push(token)
             }
+            Token::Operator(op, op_type) => match op_type {
+                OperatorType::Prefix => op_stack.push(token),
+                OperatorType::Postfix => {
+                    output.push(token);
+                }
+                OperatorType::Infix => {
+                    while let Some(top_op) = op_stack.last() {
+                        if let Token::Operator(top_op_str, _) = top_op {
+                            if let Some(top_operator) = get_operator(top_op_str, operators) {
+                                if (top_operator.assoc == Assoc::Left
+                                    && top_operator.precedence >= precedence(&op, operators))
+                                    || (top_operator.assoc == Assoc::Right
+                                        && top_operator.precedence > precedence(&op, operators))
+                                {
+                                    output.push(op_stack.pop().unwrap());
+                                } else {
+                                    break;
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    op_stack.push(token);
+                }
+            },
             Token::LeftParen => op_stack.push(token),
             Token::RightParen => {
                 while let Some(top_op) = op_stack.pop() {
@@ -300,7 +514,7 @@ pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token,
     let mut prefix_map: HashMap<String, fn(&mut Vec<Token>)> = HashMap::new();
     let mut infix_map: HashMap<String, fn(&mut Vec<Token>)> = HashMap::new();
     let mut postfix_map: HashMap<String, fn(&mut Vec<Token>)> = HashMap::new();
-    
+
     for op in operators {
         match op.op_type {
             OperatorType::Prefix => {
@@ -317,37 +531,39 @@ pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token,
 
     for token in tokens {
         match token {
-            Token::Number(_) | Token::String(_) | Token::Variable(_) => stack.push(token),
-            Token::Operator(op, op_type) => {
-                match op_type {
-                    OperatorType::Prefix => {
-                        if let Some(&func) = prefix_map.get(&op) {
-                            func(&mut stack);
-                        } else {
-                            return Err(format!("Unknown prefix operator: {}", op));
-                        }
-                    }
-                    OperatorType::Infix => {
-                        if let Some(&func) = infix_map.get(&op) {
-                            func(&mut stack);
-                        } else {
-                            return Err(format!("Unknown infix operator: {}", op));
-                        }
-                    }
-                    OperatorType::Postfix => {
-                        if let Some(&func) = postfix_map.get(&op) {
-                            func(&mut stack);
-                        } else {
-                            return Err(format!("Unknown postfix operator: {}", op));
-                        }
+            Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) => {
+                stack.push(token)
+            }
+            Token::Operator(op, op_type) => match op_type {
+                OperatorType::Prefix => {
+                    if let Some(&func) = prefix_map.get(&op) {
+                        func(&mut stack);
+                    } else {
+                        return Err(format!("Unknown prefix operator: {}", op));
                     }
                 }
-            }
+                OperatorType::Infix => {
+                    if let Some(&func) = infix_map.get(&op) {
+                        func(&mut stack);
+                    } else {
+                        return Err(format!("Unknown infix operator: {}", op));
+                    }
+                }
+                OperatorType::Postfix => {
+                    if let Some(&func) = postfix_map.get(&op) {
+                        func(&mut stack);
+                    } else {
+                        return Err(format!("Unknown postfix operator: {}", op));
+                    }
+                }
+            },
             _ => return Err("Unexpected token".to_string()),
         }
     }
 
-    stack.pop().ok_or_else(|| "Evaluation error: stack is empty".to_string())
+    stack
+        .pop()
+        .ok_or_else(|| "Evaluation error: stack is empty".to_string())
 }
 
 pub fn evaluate(expression: &str, operators: &[Operator]) -> Result<Token, String> {
@@ -361,16 +577,25 @@ pub fn evaluate(expression: &str, operators: &[Operator]) -> Result<Token, Strin
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_rpn_evaluation() {
+    fn test_expression(expression: &str, expected: &str) {
         let operators = get_standard_operators();
 
         // Test addition
-        let tokens = tokenize("2 + 5", &operators);
+        let tokens = tokenize(expression, &operators);
         let rpn = shunting_yard(tokens, &operators);
         let result = evaluate_rpn(rpn, &operators).unwrap();
-        assert_eq!(result, Token::Number(BigDecimal::from(7)));
-
-        // Test more operations here...
+        assert_eq!(
+            result,
+            Token::Number(BigDecimal::from_str(expected).unwrap())
+        );
+    }
+    #[test]
+    fn test_rpn_evaluation() {
+        test_expression("2 + 5", "7");
+        test_expression("5 - 2", "3");
+        test_expression("2 * 5", "10");
+        test_expression("5 / 2", "2.5");
+        test_expression("0, 0 + 5", "7");
+        test_expression("5 % 2", "1");
     }
 }
