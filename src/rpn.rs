@@ -39,24 +39,98 @@ pub struct Operator {
     pub func: fn(&mut Vec<Token>, &mut HashMap<String, Token>),
 }
 
-fn op_add(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-    op_infix_number(stack, context, |left, right| left + right);
+trait NumericValue {
+    fn n_value(self) -> BigDecimal;
 }
 
-fn op_subtract(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-    op_infix_number(stack, context, |left, right| left - right);
+impl NumericValue for BigDecimal {
+    fn n_value(self) -> BigDecimal {
+        self
+    }
 }
 
-fn op_multiply(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-    op_infix_number(stack, context, |left, right| left * right);
+impl NumericValue for String {
+    fn n_value(self) -> BigDecimal {
+        BigDecimal::from_usize(self.len()).expect("TODO!")
+    }
 }
 
-fn op_divide(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-    op_infix_number(stack, context, |left, right| left / right);
+impl NumericValue for Vec<Token> {
+    fn n_value(self) -> BigDecimal {
+        BigDecimal::from_usize(self.len()).expect("TODO!")
+    }
 }
 
-fn op_modulo(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-    op_infix_number(stack, context, |left, right| left % right);
+fn op_infix_number<F>(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>, op: F)
+where
+    F: Fn(BigDecimal, BigDecimal) -> BigDecimal,
+{
+    let right = stack.pop().unwrap();
+    let left = stack.pop().unwrap();
+    match (left, right) {
+        (Token::Number(left_num), Token::Number(right_num)) => {
+            stack.push(Token::Number(op(left_num, right_num)));
+        }
+        (Token::Number(left_num), Token::String(right_str)) => {
+            let result = op(left_num, right_str.n_value());
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::String(left_str), Token::Number(right_num)) => {
+            let result = op(left_str.n_value(), right_num);
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::String(left_str), Token::String(right_str)) => {
+            let result = op(left_str.n_value(), right_str.n_value());
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::List(left_list), Token::Number(right_num)) => {
+            let result = op(left_list.n_value(), right_num);
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::List(left_list), Token::String(right_str)) => {
+            let result = op(left_list.n_value(), right_str.n_value());
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::Number(left_num), Token::List(right_list)) => {
+            let result = op(left_num, right_list.n_value());
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::String(left_str), Token::List(right_list)) => {
+            let result = op(left_str.n_value(), right_list.n_value());
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::List(left_list), Token::List(right_list)) => {
+            let result = op(left_list.n_value(), right_list.n_value());
+            stack.push(Token::Number(BigDecimal::from(result)));
+        }
+        (Token::Variable(left_var), right) => {
+            let left_value = context.get(&left_var).clone();
+            // TODO maybe we can avoid undefined variable error here by pushing the variable again?
+            stack.push(left_value.expect("No lvalue").clone());
+            stack.push(right);
+            op_infix_number(stack, context, op);
+        }
+        (left, Token::Variable(right_var)) => {
+            let right_value = context.get(&right_var).clone();
+            // TODO maybe we can avoid undefined variable error here by pushing the variable again?
+            stack.push(left);
+            stack.push(right_value.expect("No rvalue").clone());
+            op_infix_number(stack, context, op);
+        }
+        _ => {
+            panic!("Add operation requires either numbers or strings");
+        }
+    }
+}
+
+fn op_infix_bool<F>(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>, op: F)
+where
+    F: Fn(bool, bool) -> bool,
+{
+}
+
+fn op_null(_stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
+    println!("op_null")
 }
 
 fn op_pow(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
@@ -109,109 +183,17 @@ fn op_cons(stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
 }
 
 fn op_assign(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-
     let right = stack.pop().unwrap();
     let left = stack.pop().unwrap();
     match (left, right) {
-        (Token::Variable(left_var), right)=> {
+        (Token::Variable(left_var), right) => {
             context.insert(left_var, right.clone());
             stack.push(right);
         }
-        _ => panic!("Tried assignment operation without a variable on the left side.")
-
+        _ => panic!("Tried assignment operation without a variable on the left side."),
     }
     for (key, value) in context {
         println!("{key}: {:?}", value);
-    }
-}
-
-fn op_null(_stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
-    println!("op_null")
-}
-
-fn op_infix_number<F>(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>, op: F)
-where
-    F: Fn(BigDecimal, BigDecimal) -> BigDecimal,
-{
-    let right = stack.pop().unwrap();
-    let left = stack.pop().unwrap();
-    match (left, right) {
-        (Token::Number(left_num), Token::Number(right_num)) => {
-            stack.push(Token::Number(op(left_num, right_num)));
-        }
-        (Token::Number(left_num), Token::String(right_str)) => {
-            let result = op(
-                left_num,
-                BigDecimal::from_usize(right_str.len()).expect("TODO!"),
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::String(left_str), Token::Number(right_num)) => {
-            let result = op(
-                BigDecimal::from_usize(left_str.len()).expect("TODO!"),
-                right_num,
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::String(left_str), Token::String(right_str)) => {
-            let result = op(
-                BigDecimal::from_usize(left_str.len()).expect("TODO!"),
-                BigDecimal::from_usize(right_str.len()).expect("TODO!"),
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::List(left_list), Token::Number(right_num)) => {
-            let result = op(
-                BigDecimal::from_usize(left_list.len()).expect("TODO!"),
-                right_num,
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::List(left_list), Token::String(right_str)) => {
-            let result = op(
-                BigDecimal::from_usize(left_list.len()).expect("TODO!"),
-                BigDecimal::from_usize(right_str.len()).expect("TODO!"),
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::Number(left_num), Token::List(right_list)) => {
-            let result = op(
-                left_num,
-                BigDecimal::from_usize(right_list.len()).expect("TODO!"),
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::String(left_str), Token::List(right_list)) => {
-            let result = op(
-                BigDecimal::from_usize(left_str.len()).expect("TODO!"),
-                BigDecimal::from_usize(right_list.len()).expect("TODO!"),
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::List(left_list), Token::List(right_list)) => {
-            let result = op(
-                BigDecimal::from_usize(left_list.len()).expect("TODO!"),
-                BigDecimal::from_usize(right_list.len()).expect("TODO!"),
-            );
-            stack.push(Token::Number(BigDecimal::from(result)));
-        }
-        (Token::Variable(left_var), right) => {
-            let left_value = context.get(&left_var).clone();
-            // TODO maybe we can avoid undefined variable error here by pushing the variable again?
-            stack.push(left_value.expect("No lvalue").clone());
-            stack.push(right);
-            op_infix_number(stack, context, op);
-        }
-        (left,Token::Variable( right_var)) => {
-            let right_value = context.get(&right_var).clone();
-            // TODO maybe we can avoid undefined variable error here by pushing the variable again?
-            stack.push(left);
-            stack.push(right_value.expect("No rvalue").clone());
-            op_infix_number(stack, context, op);
-        }
-        _ => {
-            panic!("Add operation requires either numbers or strings");
-        }
     }
 }
 
@@ -229,7 +211,7 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 3,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| op_infix_bool(stack, context, |left, right| left || right),
         },
         Operator {
             symbol: "&&".to_string(),
@@ -306,14 +288,14 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 11,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_add,
+            func: |stack, context| op_infix_number(stack, context, |left, right| left + right),
         },
         Operator {
             symbol: "-".to_string(),
             precedence: 11,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_subtract,
+            func: |stack, context| op_infix_number(stack, context, |left, right| left - right),
         },
         Operator {
             symbol: "$".to_string(),
@@ -327,21 +309,21 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 12,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_multiply,
+            func: |stack, context| op_infix_number(stack, context, |left, right| left * right),
         },
         Operator {
             symbol: "/".to_string(),
             precedence: 12,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_divide,
+            func: |stack, context| op_infix_number(stack, context, |left, right| left / right),
         },
         Operator {
             symbol: "%".to_string(),
             precedence: 12,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_modulo,
+            func: |stack, context| op_infix_number(stack, context, |left, right| left % right),
         },
         Operator {
             symbol: "**".to_string(),
@@ -574,9 +556,12 @@ pub fn convert_to_rpn(expression: &str, operators: &[Operator]) -> String {
 
 pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token, String> {
     let mut stack = Vec::new();
-    let mut prefix_map: HashMap<String, fn(&mut Vec<Token> , &mut HashMap<String, Token>)> = HashMap::new();
-    let mut infix_map: HashMap<String, fn(&mut Vec<Token>  , &mut HashMap<String, Token>)> = HashMap::new();
-    let mut postfix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> = HashMap::new();
+    let mut prefix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
+        HashMap::new();
+    let mut infix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
+        HashMap::new();
+    let mut postfix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
+        HashMap::new();
     let mut context: HashMap<String, Token> = HashMap::new();
 
     for op in operators {

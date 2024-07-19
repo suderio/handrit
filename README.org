@@ -1,0 +1,174 @@
+# hati
+
+## Operators
+
+Design: strive for cartesian shit
+
+### Prefix
+
+Acts on the right operand
+
+Examples:
+
+-1
+
+~true
+
+### Infix
+
+Acts on the left and right operands
+
+Examples:
+
+1 + 1
+> 2
+
+1, 2, 3
+>[1 2 3]
+
+### Circunfix
+
+Syntatic sugar for defining strings and lists, or change the order of operations
+
+## Data types
+
+### Scalar
+
+- Number
+- Boolean (syntatic sugar)
+
+Examples
+
+10.3
+> 10.3
+true
+> 1
+false
+0
+
+### Entry
+
+A key: value pair
+
+Examples:
+
+a: 100
+0: 1
+
+### List
+
+A bag of entries with unique keys
+
+Examples:
+
+1, 2, 3
+[1 2 3]
+a: 3, 2, 1
+{a: 3, 0: 2, 1: 1}
+
+## Keywords
+
+### left & right
+
+Used to define new operators
+
+### this
+
+Allows recursive calls (y combinator)
+
+## Some special operators
+
+### comma (,)
+
+Allows list creation
+
+Examples:
+
+1, 2, 3 
+> [1 2 3]
+
+1, 1, (2, 3)
+> [1, 1, [2, 3]]
+
+### dot (.)
+
+A map, reduce or pipe, where the left operand receives the right and produces a similar result, i.e. a list if received a list and a scalar if received a scalar. If the left is a prefix, applies to every element as a map. If it is a infix, applies to elements as a reduce. If it is a scalar, returns the element on the right with the same index. If it is a list, returns a list with every element of the left with the same key as the left's values.
+
+Examples
+
+1, 2, 3 . +
+> 6
+
+1, 2, 3 . - 
+> -4 # if the name is both an infix and prefix operation, it will be prefix (map) on the left and infix (reduce) on the right.
+
+sum2: right + 2
+sum2 . 1, 2, 3
+1, 2, 3 . sum2 # if the name is bounded only to an infix operation, it can be used on the right side, but it is not recommended.
+> [3, 4, 5]
+
+1, 2, 3 . 1
+> [2]
+
+1, 2, 3 . 1, 2
+> [2 3]
+
+### semicolon (;)
+
+### colon (:)
+
+Creates an entry, i.e. a name: value pair
+
+a: 1
+sum: {left + right}
+
+## Basic
+
+Arithm: + - * / ** % ( ) 
+Comp: < > <= >= = <> # lt gt le ge eq ne
+Logic: | || & && ~ ^ # or or! and and! not xor
+List: [ ] : " , { } (operator) ' (character)
+String: $ (string substitution) =~ (regexp)
+Language: # (comment) << >> (redirects) \ (latex strings)
+Reserved: ! (deletes from the stack) @ (reads file and returns a string) ?;
+### Imports
+- someImport: fun >> @/someFile.fun
+- anotherImport: >> fun @http://github.com/someRepo/someFile.fun
+- iso-8891: (fun >> @strings.fun) iso-8891
+```
+
+## Examples
+
+fact: {(true: 1, false: (right * (this (right - 1)))) . (right <= 1)}
+
+# PRN: true 1 : false right this right 1 - * : , right 1 <= .
+
+sum: {
+  right . +
+}
+
+sum (1, 2, 3)
+# RPN: 1 2 , 3 , right + . ! | [1 2 3] right + . ! | [1 2 3] [1 2 3] + . ! | [1 2 3] 6 ! | 6
+
+isub: {
+  right - left
+}
+
+1 isub 0
+> -1
+
+# RPN: 1 0 isub | 1 0 right left - ! ! | 1 0 0 1 - ! ! | 1 0 -1 ! ! | 1 -1 ! | -1 
+# ! remove o endereço em head - 1
+# right se algum operador encontra, substitui pelo endereço anterior
+# left se algum operador encontra, substitui pelo anterior anterior
+
+
+
+"Hello $0 $1" $ "World", "!"
+> "Hello World !"
+
+a: 0, b: 1, c: 2
+[a: 0 b: 1 c: 2]
+
+
+
