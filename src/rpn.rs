@@ -1,6 +1,8 @@
 use bigdecimal::BigDecimal;
 use bigdecimal::FromPrimitive;
+use bigdecimal::One;
 use bigdecimal::ToPrimitive;
+use bigdecimal::Zero;
 use std::collections::HashMap;
 use std::convert::From;
 use std::ops::Neg;
@@ -41,11 +43,15 @@ pub struct Operator {
 
 trait NumericValue {
     fn n_value(self) -> BigDecimal;
+    fn b_value(self) -> bool;
 }
 
 impl NumericValue for BigDecimal {
     fn n_value(self) -> BigDecimal {
         self
+    }
+    fn b_value(self) -> bool {
+        self != BigDecimal::zero()
     }
 }
 
@@ -53,73 +59,91 @@ impl NumericValue for String {
     fn n_value(self) -> BigDecimal {
         BigDecimal::from_usize(self.len()).expect("TODO!")
     }
+    fn b_value(self) -> bool {
+        BigDecimal::from_usize(self.len()).expect("TODO!") != BigDecimal::zero()
+    }
 }
 
 impl NumericValue for Vec<Token> {
     fn n_value(self) -> BigDecimal {
         BigDecimal::from_usize(self.len()).expect("TODO!")
     }
+    fn b_value(self) -> bool {
+        BigDecimal::from_usize(self.len()).expect("TODO!") != BigDecimal::zero()
+    }
 }
 
-fn op_infix_number<F>(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>, op: F)
-where
-    F: Fn(BigDecimal, BigDecimal) -> BigDecimal,
-{
+fn op_infix_numeric_value(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
     let right = stack.pop().unwrap();
     let left = stack.pop().unwrap();
     match (left, right) {
         (Token::Number(left_num), Token::Number(right_num)) => {
-            stack.push(Token::Number(op(left_num, right_num)));
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::Number(left_num), Token::String(right_str)) => {
-            let result = op(left_num, right_str.n_value());
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::Number(left_num), Token::String(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::String(left_str), Token::Number(right_num)) => {
-            let result = op(left_str.n_value(), right_num);
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::String(left_num), Token::Number(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::String(left_str), Token::String(right_str)) => {
-            let result = op(left_str.n_value(), right_str.n_value());
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::String(left_num), Token::String(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::List(left_list), Token::Number(right_num)) => {
-            let result = op(left_list.n_value(), right_num);
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::List(left_num), Token::Number(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::List(left_list), Token::String(right_str)) => {
-            let result = op(left_list.n_value(), right_str.n_value());
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::List(left_num), Token::String(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::Number(left_num), Token::List(right_list)) => {
-            let result = op(left_num, right_list.n_value());
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::Number(left_num), Token::List(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::String(left_str), Token::List(right_list)) => {
-            let result = op(left_str.n_value(), right_list.n_value());
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::String(left_num), Token::List(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
-        (Token::List(left_list), Token::List(right_list)) => {
-            let result = op(left_list.n_value(), right_list.n_value());
-            stack.push(Token::Number(BigDecimal::from(result)));
+        (Token::List(left_num), Token::List(right_num)) => {
+            stack.push(Token::Number(BigDecimal::from(left_num.n_value())));
+            stack.push(Token::Number(BigDecimal::from(right_num.n_value())));
         }
         (Token::Variable(left_var), right) => {
             let left_value = context.get(&left_var).clone();
             // TODO maybe we can avoid undefined variable error here by pushing the variable again?
             stack.push(left_value.expect("No lvalue").clone());
             stack.push(right);
-            op_infix_number(stack, context, op);
+            op_infix_numeric_value(stack, context);
         }
         (left, Token::Variable(right_var)) => {
             let right_value = context.get(&right_var).clone();
             // TODO maybe we can avoid undefined variable error here by pushing the variable again?
             stack.push(left);
             stack.push(right_value.expect("No rvalue").clone());
-            op_infix_number(stack, context, op);
+            op_infix_numeric_value(stack, context);
         }
         _ => {
             panic!("Add operation requires either numbers or strings");
         }
+    }
+}
+fn op_infix_number<F>(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>, op: F)
+where
+    F: Fn(BigDecimal, BigDecimal) -> BigDecimal,
+{
+    op_infix_numeric_value(stack, context);
+    let right = stack.pop().unwrap();
+    let left = stack.pop().unwrap();
+    match (left, right) {
+        (Token::Number(left_num), Token::Number(right_num)) => {
+            stack.push(Token::Number(op(left_num, right_num)));
+        }
+        _ => panic!("Add operation requires numbers"),
     }
 }
 
@@ -127,73 +151,20 @@ fn op_infix_bool<F>(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>
 where
     F: Fn(bool, bool) -> bool,
 {
-}
-
-fn op_null(_stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
-    println!("op_null")
-}
-
-fn op_pow(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
-    op_infix_number(stack, context, |left, right| {
-        let mut result = BigDecimal::from_i32(1).expect("TODO!");
-        for _ in 0..(right.to_u128().expect("TODO!")) {
-            result *= &left;
-        }
-        result
-    });
-}
-
-fn op_minus(stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
-    let right = stack.pop().unwrap();
-    match right {
-        Token::Number(right_num) => stack.push(Token::Number(-right_num)),
-        Token::String(right_str) => stack.push(Token::Number(
-            BigDecimal::from_usize(right_str.len()).unwrap().neg(),
-        )),
-        Token::List(right_list) => stack.push(Token::Number(
-            BigDecimal::from_usize(right_list.len()).unwrap().neg(),
-        )),
-        _ => todo!(),
-    }
-}
-
-fn op_plus(stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
-    let right = stack.pop().unwrap();
-    match right {
-        Token::Number(right_num) => stack.push(Token::Number(right_num)),
-        Token::String(right_str) => stack.push(Token::Number(
-            BigDecimal::from_usize(right_str.len()).unwrap(),
-        )),
-        Token::List(right_list) => stack.push(Token::Number(
-            BigDecimal::from_usize(right_list.len()).unwrap(),
-        )),
-        _ => todo!(),
-    }
-}
-fn op_cons(stack: &mut Vec<Token>, _context: &mut HashMap<String, Token>) {
-    let right = stack.pop().unwrap();
-    let left = stack.pop().unwrap();
-    match left {
-        Token::List(mut left_list) => {
-            left_list.push(right);
-            stack.push(Token::List(left_list));
-        }
-        _ => stack.push(Token::List(vec![left, right])),
-    }
-}
-
-fn op_assign(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
+    op_infix_numeric_value(stack, context);
     let right = stack.pop().unwrap();
     let left = stack.pop().unwrap();
     match (left, right) {
-        (Token::Variable(left_var), right) => {
-            context.insert(left_var, right.clone());
-            stack.push(right);
+        (Token::Number(left_num), Token::Number(right_num)) => {
+            stack.push(Token::Number(
+                if op(left_num.b_value(), right_num.b_value()) {
+                    BigDecimal::one()
+                } else {
+                    BigDecimal::zero()
+                },
+            ));
         }
-        _ => panic!("Tried assignment operation without a variable on the left side."),
-    }
-    for (key, value) in context {
-        println!("{key}: {:?}", value);
+        _ => panic!("Add operation requires booleans"),
     }
 }
 
@@ -204,7 +175,17 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 1,
             assoc: Assoc::Right,
             op_type: OperatorType::Infix,
-            func: op_assign,
+            func: |stack, context| {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+                match (left, right) {
+                    (Token::Variable(left_var), right) => {
+                        context.insert(left_var, right.clone());
+                        stack.push(right);
+                    }
+                    _ => panic!("Tried assignment operation without a variable on the left side."),
+                }
+            },
         },
         Operator {
             symbol: "||".to_string(),
@@ -218,70 +199,118 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 4,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| op_infix_bool(stack, context, |left, right| left && right),
         },
         Operator {
             symbol: "|".to_string(),
             precedence: 5,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| op_infix_bool(stack, context, |left, right| left | right),
         },
         Operator {
             symbol: "^".to_string(),
             precedence: 6,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| op_infix_bool(stack, context, |left, right| left ^ right),
         },
         Operator {
             symbol: "&".to_string(),
             precedence: 7,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| op_infix_bool(stack, context, |left, right| left & right),
         },
         Operator {
             symbol: "=".to_string(),
             precedence: 8,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    if left == right {
+                        BigDecimal::one()
+                    } else {
+                        BigDecimal::zero()
+                    }
+                })
+            },
         },
         Operator {
             symbol: "<>".to_string(),
             precedence: 8,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    if left != right {
+                        BigDecimal::one()
+                    } else {
+                        BigDecimal::zero()
+                    }
+                })
+            },
         },
         Operator {
             symbol: ">".to_string(),
             precedence: 9,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    if left > right {
+                        BigDecimal::one()
+                    } else {
+                        BigDecimal::zero()
+                    }
+                })
+            },
         },
         Operator {
             symbol: "<".to_string(),
             precedence: 9,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    if left < right {
+                        BigDecimal::one()
+                    } else {
+                        BigDecimal::zero()
+                    }
+                })
+            },
         },
         Operator {
             symbol: ">=".to_string(),
             precedence: 9,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    if left >= right {
+                        BigDecimal::one()
+                    } else {
+                        BigDecimal::zero()
+                    }
+                })
+            },
         },
         Operator {
             symbol: "<=".to_string(),
             precedence: 9,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    if left <= right {
+                        BigDecimal::one()
+                    } else {
+                        BigDecimal::zero()
+                    }
+                })
+            },
         },
         Operator {
             symbol: "+".to_string(),
@@ -302,7 +331,7 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 11,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_null,
+            func: |_, _| println!("$"),
         },
         Operator {
             symbol: "*".to_string(),
@@ -330,42 +359,95 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 13,
             assoc: Assoc::Right,
             op_type: OperatorType::Infix,
-            func: op_pow,
+            func: |stack, context| {    op_infix_number(stack, context, |left, right| {
+                let mut result = BigDecimal::from_i32(1).expect("TODO!");
+                for _ in 0..(right.to_u128().expect("TODO!")) {
+                    result *= &left;
+                }
+                result
+            });
+            },
         },
         Operator {
             symbol: "-".to_string(),
             precedence: 14,
             assoc: Assoc::Right,
             op_type: OperatorType::Prefix,
-            func: op_minus,
+            func: |stack, _context| {    let right = stack.pop().unwrap();
+                match right {
+                    Token::Number(right_num) => stack.push(Token::Number(-right_num)),
+                    Token::String(right_str) => stack.push(Token::Number(
+                        BigDecimal::from_usize(right_str.len()).unwrap().neg(),
+                    )),
+                    Token::List(right_list) => stack.push(Token::Number(
+                        BigDecimal::from_usize(right_list.len()).unwrap().neg(),
+                    )),
+                    _ => todo!(),
+                }
+            },
         },
         Operator {
             symbol: "+".to_string(),
             precedence: 14,
             assoc: Assoc::Right,
             op_type: OperatorType::Prefix,
-            func: op_plus,
+            func: |stack, _context| {    let right = stack.pop().unwrap();
+                match right {
+                    Token::Number(right_num) => stack.push(Token::Number(right_num)),
+                    Token::String(right_str) => stack.push(Token::Number(
+                        BigDecimal::from_usize(right_str.len()).unwrap(),
+                    )),
+                    Token::List(right_list) => stack.push(Token::Number(
+                        BigDecimal::from_usize(right_list.len()).unwrap(),
+                    )),
+                    _ => todo!(),
+                }
+            },
         },
         Operator {
             symbol: "~".to_string(),
             precedence: 14,
             assoc: Assoc::Right,
             op_type: OperatorType::Prefix,
-            func: op_null,
+            func: |_, _| println!("~"),
         },
         Operator {
             symbol: "?".to_string(),
             precedence: 16,
             assoc: Assoc::Left,
             op_type: OperatorType::Postfix,
-            func: op_null,
+            func: |_, _| println!("?"),
         },
         Operator {
             symbol: ",".to_string(),
             precedence: 16,
             assoc: Assoc::Left,
             op_type: OperatorType::Infix,
-            func: op_cons,
+            func: |stack, _context| {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+                match left {
+                    Token::List(mut left_list) => {
+                        left_list.push(right);
+                        stack.push(Token::List(left_list));
+                    }
+                    _ => stack.push(Token::List(vec![left, right])),
+                }
+            },
+        },
+        Operator {
+            symbol: ";".to_string(),
+            precedence: 16,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: |_, _| println!(";"),
+        },
+        Operator {
+            symbol: ".".to_string(),
+            precedence: 16,
+            assoc: Assoc::Left,
+            op_type: OperatorType::Infix,
+            func: |_, _| println!("."),
         },
         // Add more standard operators here
     ]
@@ -661,5 +743,11 @@ mod tests {
     fn test_var_evaluation() {
         test_expression("x: 1 - 1", "0");
         test_expression("(x: 1) - x", "0");
+    }
+
+    #[test]
+    fn test_bool_evaluation() {
+        test_expression("3 || 0", "1");
+        test_expression("(1 - 1) || 0", "0");
     }
 }
