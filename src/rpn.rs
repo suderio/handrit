@@ -17,6 +17,10 @@ pub enum Token {
     List(Vec<Token>),
     LeftParen,
     RightParen,
+    LeftBracket,
+    RightBracket,
+    LeftBrace,
+    RightBrace,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -359,13 +363,14 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 13,
             assoc: Assoc::Right,
             op_type: OperatorType::Infix,
-            func: |stack, context| {    op_infix_number(stack, context, |left, right| {
-                let mut result = BigDecimal::from_i32(1).expect("TODO!");
-                for _ in 0..(right.to_u128().expect("TODO!")) {
-                    result *= &left;
-                }
-                result
-            });
+            func: |stack, context| {
+                op_infix_number(stack, context, |left, right| {
+                    let mut result = BigDecimal::from_i32(1).expect("TODO!");
+                    for _ in 0..(right.to_u128().expect("TODO!")) {
+                        result *= &left;
+                    }
+                    result
+                });
             },
         },
         Operator {
@@ -373,7 +378,8 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 14,
             assoc: Assoc::Right,
             op_type: OperatorType::Prefix,
-            func: |stack, _context| {    let right = stack.pop().unwrap();
+            func: |stack, _context| {
+                let right = stack.pop().unwrap();
                 match right {
                     Token::Number(right_num) => stack.push(Token::Number(-right_num)),
                     Token::String(right_str) => stack.push(Token::Number(
@@ -391,7 +397,8 @@ pub fn get_standard_operators() -> Vec<Operator> {
             precedence: 14,
             assoc: Assoc::Right,
             op_type: OperatorType::Prefix,
-            func: |stack, _context| {    let right = stack.pop().unwrap();
+            func: |stack, _context| {
+                let right = stack.pop().unwrap();
                 match right {
                     Token::Number(right_num) => stack.push(Token::Number(right_num)),
                     Token::String(right_str) => stack.push(Token::Number(
@@ -508,6 +515,22 @@ fn tokenize(expression: &str, operators: &[Operator]) -> Vec<Token> {
                 tokens.push(Token::RightParen);
                 chars.next();
             }
+            '[' => {
+                tokens.push(Token::LeftBracket);
+                chars.next();
+            }
+            ']' => {
+                tokens.push(Token::RightBracket);
+                chars.next();
+            }
+            '{' => {
+                tokens.push(Token::LeftBrace);
+                chars.next();
+            }
+            '}' => {
+                tokens.push(Token::RightBrace);
+                chars.next();
+            }
             'a'..='z' | 'A'..='Z' | '_' => {
                 let mut ident = String::new();
                 while let Some(&ch) = chars.peek() {
@@ -600,6 +623,32 @@ fn shunting_yard(tokens: Vec<Token>, operators: &[Operator]) -> Vec<Token> {
                     output.push(top_op);
                 }
             }
+            Token::LeftBracket => {
+                output.push(Token::LeftBracket);
+                op_stack.push(token);
+            }
+            Token::RightBracket => {
+                while let Some(top_op) = op_stack.pop() {
+                    if top_op == Token::LeftBracket {
+                        break;
+                    }
+                    output.push(top_op);
+                }
+                output.push(Token::RightBracket);
+            }
+            Token::LeftBrace => {
+                output.push(Token::LeftBrace);
+                op_stack.push(token);
+            }
+            Token::RightBrace => {
+                while let Some(top_op) = op_stack.pop() {
+                    if top_op == Token::LeftBrace {
+                        break;
+                    }
+                    output.push(top_op);
+                }
+                output.push(Token::RightBrace);
+            }
         }
     }
 
@@ -629,6 +678,12 @@ pub fn convert_to_rpn(expression: &str, operators: &[Operator]) -> String {
             Token::String(s) => result.push_str(&format!("\"{}\" ", s)),
             Token::Variable(var) => result.push_str(&format!("{} ", var)),
             Token::Operator(op, _) => result.push_str(&format!("{} ", op)),
+            Token::LeftParen => result.push_str(&format!("{} ", "(")),
+            Token::RightParen => result.push_str(&format!("{} ", ")")),
+            Token::LeftBracket => result.push_str(&format!("{} ", "[")),
+            Token::RightBracket => result.push_str(&format!("{} ", "]")),
+            Token::LeftBrace => result.push_str(&format!("{} ", "{")),
+            Token::RightBrace => result.push_str(&format!("{} ", "}")),
             _ => {}
         }
     }
@@ -659,7 +714,7 @@ pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token,
             }
         }
     }
-
+    let mut func_level = 0;
     for token in tokens {
         match token {
             Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) => {
@@ -687,14 +742,27 @@ pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token,
                         return Err(format!("Unknown postfix operator: {}", op));
                     }
                 }
-            },
+            }
+            Token::LeftBracket => {
+                func_level += 1;
+                // context.insert(String::from("left"), stack.last().clone().unwrap());
+                
+            }
+            Token::RightBracket => {
+                //                 stack.pop();
+                func_level -= 1;
+            }
+            Token::LeftBrace => {
+                func_level += 1;
+            }
+            Token::RightBrace => {
+                func_level -= 1;
+            }
             _ => return Err("Unexpected token".to_string()),
         }
     }
 
-    stack
-        .pop()
-        .ok_or_else(|| "Evaluation error: stack is empty".to_string())
+    stack.pop().ok_or_else(|| "[]".to_string())
 }
 
 pub fn evaluate(expression: &str, operators: &[Operator]) -> Result<Token, String> {
@@ -749,5 +817,6 @@ mod tests {
     fn test_bool_evaluation() {
         test_expression("3 || 0", "1");
         test_expression("(1 - 1) || 0", "0");
+        test_expression("0 && 0", "0");
     }
 }
