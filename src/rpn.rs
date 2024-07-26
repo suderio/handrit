@@ -21,6 +21,8 @@ pub enum Token {
     RightBracket,
     LeftBrace,
     RightBrace,
+    LeftRef,
+    RightRef,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -541,7 +543,13 @@ fn tokenize(expression: &str, operators: &[Operator]) -> Vec<Token> {
                         break;
                     }
                 }
-                tokens.push(Token::Variable(ident));
+                if ident == "left" {
+                    tokens.push(Token::LeftRef);
+                } else if ident == "right" {
+                    tokens.push(Token::RightRef);
+                } else {
+                    tokens.push(Token::Variable(ident));
+                }
             }
             _ => {
                 let mut op = String::new();
@@ -550,6 +558,10 @@ fn tokenize(expression: &str, operators: &[Operator]) -> Vec<Token> {
                         || next_ch == ' '
                         || next_ch == '('
                         || next_ch == ')'
+                        || next_ch == '['
+                        || next_ch == ']'
+                        || next_ch == '{'
+                        || next_ch == '}'
                     {
                         break;
                     }
@@ -585,7 +597,7 @@ fn shunting_yard(tokens: Vec<Token>, operators: &[Operator]) -> Vec<Token> {
 
     for token in tokens {
         match token.clone() {
-            Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) => {
+            Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) | Token::LeftRef | Token::RightRef => {
                 output.push(token)
             }
             Token::Operator(op, op_type) => match op_type {
@@ -684,6 +696,8 @@ pub fn convert_to_rpn(expression: &str, operators: &[Operator]) -> String {
             Token::RightBracket => result.push_str(&format!("{} ", "]")),
             Token::LeftBrace => result.push_str(&format!("{} ", "{")),
             Token::RightBrace => result.push_str(&format!("{} ", "}")),
+            Token::LeftRef => result.push_str(&format!("{} ", "left")),
+            Token::RightRef => result.push_str(&format!("{} ", "right")),
             _ => {}
         }
     }
@@ -742,11 +756,10 @@ pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token,
                         return Err(format!("Unknown postfix operator: {}", op));
                     }
                 }
-            }
+            },
             Token::LeftBracket => {
                 func_level += 1;
                 // context.insert(String::from("left"), stack.last().clone().unwrap());
-                
             }
             Token::RightBracket => {
                 //                 stack.pop();
