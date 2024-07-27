@@ -32,19 +32,355 @@ pub enum OperatorType {
     Postfix,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Assoc {
     Left,
     Right,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Operator {
     pub symbol: String,
     pub precedence: usize,
     pub assoc: Assoc,
     pub op_type: OperatorType,
     pub func: fn(&mut Vec<Token>, &mut HashMap<String, Token>),
+}
+
+pub struct Machine {
+    operators: Vec<Operator>,
+}
+
+impl Machine {
+    pub fn new() -> Machine {
+        Machine { operators: get_standard_operators().clone() }
+    }
+
+    fn add_operator(&mut self, op_str: String) -> Token {
+        // TODO this is capturing any leftxxx or rightxxx variable
+        let mut op_type = OperatorType::Postfix;
+        let mut op_func: fn(&mut Vec<Token>, &mut HashMap<String, Token>) = |stack, context| op_posfix_op(stack, context);
+        if op_str.contains("left") && op_str.contains("right") {
+            op_type = OperatorType::Infix;
+            op_func = |stack, context| op_infix_op(stack, context);
+        } else if op_str.contains(" right ") {
+            op_type = OperatorType::Prefix;
+            op_func = |stack, context| op_prefix_op(stack, context);
+        };
+        let op_symbol = format!("{{{}}}", op_str.clone());
+
+        self.operators.push(Operator {
+            symbol: op_symbol.clone(),
+            precedence: 20,
+            assoc: Assoc::Left,
+            op_type: op_type.clone(),
+            func: op_func,
+        });
+        Token::Operator(op_symbol, op_type)
+    }
+
+    fn tokenize(&mut self, expression: &str) -> Vec<Token> {
+        //        tokenize(expression, &self.operators)
+        let mut tokens = Vec::new();
+        let mut chars = expression.chars().peekable();
+        //        let mut func_operator = Vec::new();
+
+        while let Some(&ch) = chars.peek() {
+            match ch {
+                '0'..='9' | '.' => {
+                    let mut num_str = String::new();
+                    while let Some(&digit) = chars.peek() {
+                        if digit.is_numeric() || digit == '.' {
+                            num_str.push(digit);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    tokens.push(Token::Number(BigDecimal::from_str(&num_str).unwrap()));
+                }
+                '"' => {
+                    chars.next(); // skip the opening quote
+                    let mut str_val = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch == '"' {
+                            chars.next(); // skip the closing quote
+                            break;
+                        }
+                        str_val.push(ch);
+                        chars.next();
+                    }
+                    tokens.push(Token::String(str_val));
+                }
+                '(' => {
+                    tokens.push(Token::LeftParen);
+                    chars.next();
+                }
+                ')' => {
+                    tokens.push(Token::RightParen);
+                    chars.next();
+                }
+                '[' => {
+                    tokens.push(Token::LeftBracket);
+                    chars.next();
+                }
+                ']' => {
+                    tokens.push(Token::RightBracket);
+                    chars.next();
+                }
+                '{' => {
+                    chars.next(); // skip the opening brace
+                    let mut func_str = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch == '}' {
+                            chars.next(); // skip the closing brace
+                            break;
+                        }
+                        func_str.push(ch);
+                        chars.next();
+                    }
+                    let op = &self.add_operator(func_str);
+                    tokens.push(op.clone());
+                }
+                '}' => {
+                    tokens.push(Token::RightBrace);
+                    chars.next();
+                }
+                'a'..='z' | 'A'..='Z' | '_' => {
+                    let mut ident = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch.is_alphanumeric() || ch == '_' {
+                            ident.push(ch);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if ident == "left" {
+                        tokens.push(Token::LeftRef);
+                    } else if ident == "right" {
+                        tokens.push(Token::RightRef);
+                    } else {
+                        tokens.push(Token::Variable(ident));
+                    }
+                }
+                _ => {
+                    let mut op = String::new();
+                    while let Some(&next_ch) = chars.peek() {
+                        if next_ch.is_alphanumeric()
+                            || next_ch == ' '
+                            || next_ch == '('
+                            || next_ch == ')'
+                            || next_ch == '['
+                            || next_ch == ']'
+                            || next_ch == '{'
+                            || next_ch == '}'
+                    {
+                        break;
+                    }
+                        op.push(next_ch);
+                        chars.next();
+                    }
+                    match tokens.last() {
+                        Some(Token::Operator(_, _)) | Some(Token::LeftParen) | None => {
+                            if let Some(operator) = get_prefix_operator(&op, &self.operators) {
+                                tokens.push(Token::Operator(op, operator.op_type.clone()));
+                            } else {
+                                chars.next(); // skip any unrecognized character
+                            }
+                        }
+
+                        _ => {
+                            if let Some(operator) = get_infix_operator(&op, &self.operators) {
+                                tokens.push(Token::Operator(op, operator.op_type.clone()));
+                            } else {
+                                chars.next(); // skip any unrecognized character
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tokens
+    }
+
+    fn shunting_yard(&self, tokens: Vec<Token>) -> Vec<Token> {
+        //        shunting_yard(tokens, &self.operators)
+        let mut output = Vec::new();
+        let mut op_stack = Vec::new();
+
+        for token in tokens {
+            match token.clone() {
+                Token::Number(_)
+            | Token::String(_)
+            | Token::Variable(_)
+            | Token::List(_)
+            | Token::LeftRef
+            | Token::RightRef => output.push(token),
+                Token::Operator(op, op_type) => match op_type {
+                    OperatorType::Prefix => op_stack.push(token),
+                    OperatorType::Postfix => {
+                        output.push(token);
+                    }
+                    OperatorType::Infix => {
+                        while let Some(top_op) = op_stack.last() {
+                            if let Token::Operator(top_op_str, _) = top_op {
+                                if let Some(top_operator) = get_operator(top_op_str, &self.operators) {
+                                    if (top_operator.assoc == Assoc::Left
+                                        && top_operator.precedence >= precedence(&op, &self.operators))
+                                        || (top_operator.assoc == Assoc::Right
+                                            && top_operator.precedence > precedence(&op, &self.operators))
+                                {
+                                    output.push(op_stack.pop().unwrap());
+                                } else {
+                                    break;
+                                }
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        op_stack.push(token);
+                    }
+                },
+                Token::LeftParen => op_stack.push(token),
+                Token::RightParen => {
+                    while let Some(top_op) = op_stack.pop() {
+                        if top_op == Token::LeftParen {
+                            break;
+                        }
+                        output.push(top_op);
+                    }
+                }
+                /*
+                Token::LeftBracket => {
+                    output.push(Token::LeftBracket);
+                    op_stack.push(token);
+                }
+                Token::RightBracket => {
+                    while let Some(top_op) = op_stack.pop() {
+                        if top_op == Token::LeftBracket {
+                            break;
+                        }
+                        output.push(top_op);
+                    }
+                    output.push(Token::RightBracket);
+                }
+                Token::LeftBrace => {
+                    output.push(Token::LeftBrace);
+                    op_stack.push(token);
+                }
+                Token::RightBrace => {
+                    while let Some(top_op) = op_stack.pop() {
+                        if top_op == Token::LeftBrace {
+                            break;
+                        }
+                        output.push(top_op);
+                    }
+                    output.push(Token::RightBrace);
+                }
+                 */
+                _ => todo!()
+            }
+        }
+
+        while let Some(op) = op_stack.pop() {
+            output.push(op);
+        }
+
+        output
+    }
+
+    fn evaluate(&self, tokens: Vec<Token>) -> Result<Token, String> {
+        //        evaluate_rpn(tokens, &self.operators)
+        let mut stack = Vec::new();
+        let mut prefix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
+            HashMap::new();
+        let mut infix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
+            HashMap::new();
+        let mut postfix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
+            HashMap::new();
+        let mut context: HashMap<String, Token> = HashMap::new();
+
+        for op in &self.operators {
+            match op.op_type {
+                OperatorType::Prefix => {
+                    prefix_map.insert(op.symbol.clone(), op.func);
+                }
+                OperatorType::Infix => {
+                    infix_map.insert(op.symbol.clone(), op.func);
+                }
+                OperatorType::Postfix => {
+                    postfix_map.insert(op.symbol.clone(), op.func);
+                }
+            }
+        }
+        for token in tokens {
+            match token {
+                Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) => {
+                    stack.push(token)
+                }
+                Token::Operator(op, op_type) => match op_type {
+                    OperatorType::Prefix => {
+                        if let Some(&func) = prefix_map.get(&op) {
+                            func(&mut stack, &mut context);
+                        } else {
+                            return Err(format!("Unknown prefix operator: {}", op));
+                        }
+                    }
+                    OperatorType::Infix => {
+                        if let Some(&func) = infix_map.get(&op) {
+                            func(&mut stack, &mut context);
+                        } else {
+                            return Err(format!("Unknown infix operator: {}", op));
+                        }
+                    }
+                    OperatorType::Postfix => {
+                        if let Some(&func) = postfix_map.get(&op) {
+                            func(&mut stack, &mut context);
+                        } else {
+                            return Err(format!("Unknown postfix operator: {}", op));
+                        }
+                    }
+                },
+                _ => return Err("Unexpected token".to_string()),
+            }
+        }
+
+        stack.pop().ok_or_else(|| "[]".to_string())
+    }
+
+    pub fn to_rpn(&mut self, expression: &str) -> String {
+        let tokens = self.tokenize(expression);
+        let rpn_tokens = self.shunting_yard(tokens);
+
+        let mut result = String::new();
+        for token in rpn_tokens {
+            match token {
+                Token::Number(num) => result.push_str(&format!("{} ", num)),
+                Token::String(s) => result.push_str(&format!("\"{}\" ", s)),
+                Token::Variable(var) => result.push_str(&format!("{} ", var)),
+                Token::Operator(op, _) => result.push_str(&format!("{} ", op)),
+                Token::LeftParen => result.push_str(&format!("{} ", "(")),
+                Token::RightParen => result.push_str(&format!("{} ", ")")),
+                Token::LeftBracket => result.push_str(&format!("{} ", "[")),
+                Token::RightBracket => result.push_str(&format!("{} ", "]")),
+                Token::LeftBrace => result.push_str(&format!("{} ", "{")),
+                Token::RightBrace => result.push_str(&format!("{} ", "}")),
+                Token::LeftRef => result.push_str(&format!("{} ", "left")),
+                Token::RightRef => result.push_str(&format!("{} ", "right")),
+                _ => {}
+            }
+        }
+
+        result.trim().to_string()
+    }
+    pub fn run(&mut self, expression: &str) -> Result<Token, String> {
+        let tokens = self.tokenize(expression);
+        let rpn_tokens = self.shunting_yard(tokens);
+        let result = self.evaluate(rpn_tokens);
+        result
+    }
 }
 
 trait NumericValue {
@@ -174,6 +510,27 @@ where
     }
 }
 
+fn op_infix_op(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
+    let right = stack.pop().unwrap();
+    let left = stack.pop().unwrap();
+    context.insert(String::from("right"), right);
+    context.insert(String::from("left"), left);
+    stack.push(Token::String(String::from("undefined")));
+    context.remove("right");
+    context.remove("left");
+}
+fn op_prefix_op(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
+    let right = stack.pop().unwrap();
+    context.insert(String::from("right"), right);
+    stack.push(Token::String(String::from("undefined")));
+    context.remove("right");
+}
+fn op_posfix_op(stack: &mut Vec<Token>, context: &mut HashMap<String, Token>) {
+    let left = stack.pop().unwrap();
+    context.insert(String::from("left"), left);
+    stack.push(Token::String(String::from("undefined")));
+    context.remove("left");
+}
 pub fn get_standard_operators() -> Vec<Operator> {
     vec![
         Operator {
@@ -478,198 +835,6 @@ fn get_prefix_operator<'a>(symbol: &str, operators: &'a [Operator]) -> Option<&'
         .find(|op| op.symbol == symbol && op.op_type == OperatorType::Prefix)
 }
 
-fn tokenize(expression: &str, operators: &[Operator]) -> Vec<Token> {
-    let mut tokens = Vec::new();
-    let mut chars = expression.chars().peekable();
-
-    while let Some(&ch) = chars.peek() {
-        match ch {
-            '0'..='9' | '.' => {
-                let mut num_str = String::new();
-                while let Some(&digit) = chars.peek() {
-                    if digit.is_numeric() || digit == '.' {
-                        num_str.push(digit);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
-                tokens.push(Token::Number(BigDecimal::from_str(&num_str).unwrap()));
-            }
-            '"' => {
-                chars.next(); // skip the opening quote
-                let mut str_val = String::new();
-                while let Some(&ch) = chars.peek() {
-                    if ch == '"' {
-                        chars.next(); // skip the closing quote
-                        break;
-                    }
-                    str_val.push(ch);
-                    chars.next();
-                }
-                tokens.push(Token::String(str_val));
-            }
-            '(' => {
-                tokens.push(Token::LeftParen);
-                chars.next();
-            }
-            ')' => {
-                tokens.push(Token::RightParen);
-                chars.next();
-            }
-            '[' => {
-                tokens.push(Token::LeftBracket);
-                chars.next();
-            }
-            ']' => {
-                tokens.push(Token::RightBracket);
-                chars.next();
-            }
-            '{' => {
-                tokens.push(Token::LeftBrace);
-                chars.next();
-            }
-            '}' => {
-                tokens.push(Token::RightBrace);
-                chars.next();
-            }
-            'a'..='z' | 'A'..='Z' | '_' => {
-                let mut ident = String::new();
-                while let Some(&ch) = chars.peek() {
-                    if ch.is_alphanumeric() || ch == '_' {
-                        ident.push(ch);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
-                if ident == "left" {
-                    tokens.push(Token::LeftRef);
-                } else if ident == "right" {
-                    tokens.push(Token::RightRef);
-                } else {
-                    tokens.push(Token::Variable(ident));
-                }
-            }
-            _ => {
-                let mut op = String::new();
-                while let Some(&next_ch) = chars.peek() {
-                    if next_ch.is_alphanumeric()
-                        || next_ch == ' '
-                        || next_ch == '('
-                        || next_ch == ')'
-                        || next_ch == '['
-                        || next_ch == ']'
-                        || next_ch == '{'
-                        || next_ch == '}'
-                    {
-                        break;
-                    }
-                    op.push(next_ch);
-                    chars.next();
-                }
-                match tokens.last() {
-                    Some(Token::Operator(_, _)) | Some(Token::LeftParen) | None => {
-                        if let Some(operator) = get_prefix_operator(&op, operators) {
-                            tokens.push(Token::Operator(op, operator.op_type.clone()));
-                        } else {
-                            chars.next(); // skip any unrecognized character
-                        }
-                    }
-
-                    _ => {
-                        if let Some(operator) = get_infix_operator(&op, operators) {
-                            tokens.push(Token::Operator(op, operator.op_type.clone()));
-                        } else {
-                            chars.next(); // skip any unrecognized character
-                        }
-                    }
-                }
-            }
-        }
-    }
-    tokens
-}
-
-fn shunting_yard(tokens: Vec<Token>, operators: &[Operator]) -> Vec<Token> {
-    let mut output = Vec::new();
-    let mut op_stack = Vec::new();
-
-    for token in tokens {
-        match token.clone() {
-            Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) | Token::LeftRef | Token::RightRef => {
-                output.push(token)
-            }
-            Token::Operator(op, op_type) => match op_type {
-                OperatorType::Prefix => op_stack.push(token),
-                OperatorType::Postfix => {
-                    output.push(token);
-                }
-                OperatorType::Infix => {
-                    while let Some(top_op) = op_stack.last() {
-                        if let Token::Operator(top_op_str, _) = top_op {
-                            if let Some(top_operator) = get_operator(top_op_str, operators) {
-                                if (top_operator.assoc == Assoc::Left
-                                    && top_operator.precedence >= precedence(&op, operators))
-                                    || (top_operator.assoc == Assoc::Right
-                                        && top_operator.precedence > precedence(&op, operators))
-                                {
-                                    output.push(op_stack.pop().unwrap());
-                                } else {
-                                    break;
-                                }
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                    op_stack.push(token);
-                }
-            },
-            Token::LeftParen => op_stack.push(token),
-            Token::RightParen => {
-                while let Some(top_op) = op_stack.pop() {
-                    if top_op == Token::LeftParen {
-                        break;
-                    }
-                    output.push(top_op);
-                }
-            }
-            Token::LeftBracket => {
-                output.push(Token::LeftBracket);
-                op_stack.push(token);
-            }
-            Token::RightBracket => {
-                while let Some(top_op) = op_stack.pop() {
-                    if top_op == Token::LeftBracket {
-                        break;
-                    }
-                    output.push(top_op);
-                }
-                output.push(Token::RightBracket);
-            }
-            Token::LeftBrace => {
-                output.push(Token::LeftBrace);
-                op_stack.push(token);
-            }
-            Token::RightBrace => {
-                while let Some(top_op) = op_stack.pop() {
-                    if top_op == Token::LeftBrace {
-                        break;
-                    }
-                    output.push(top_op);
-                }
-                output.push(Token::RightBrace);
-            }
-        }
-    }
-
-    while let Some(op) = op_stack.pop() {
-        output.push(op);
-    }
-
-    output
-}
 
 fn precedence(op: &str, operators: &[Operator]) -> usize {
     if let Some(operator) = get_operator(op, operators) {
@@ -679,123 +844,13 @@ fn precedence(op: &str, operators: &[Operator]) -> usize {
     }
 }
 
-pub fn convert_to_rpn(expression: &str, operators: &[Operator]) -> String {
-    let tokens = tokenize(expression, operators);
-    let rpn_tokens = shunting_yard(tokens, operators);
-
-    let mut result = String::new();
-    for token in rpn_tokens {
-        match token {
-            Token::Number(num) => result.push_str(&format!("{} ", num)),
-            Token::String(s) => result.push_str(&format!("\"{}\" ", s)),
-            Token::Variable(var) => result.push_str(&format!("{} ", var)),
-            Token::Operator(op, _) => result.push_str(&format!("{} ", op)),
-            Token::LeftParen => result.push_str(&format!("{} ", "(")),
-            Token::RightParen => result.push_str(&format!("{} ", ")")),
-            Token::LeftBracket => result.push_str(&format!("{} ", "[")),
-            Token::RightBracket => result.push_str(&format!("{} ", "]")),
-            Token::LeftBrace => result.push_str(&format!("{} ", "{")),
-            Token::RightBrace => result.push_str(&format!("{} ", "}")),
-            Token::LeftRef => result.push_str(&format!("{} ", "left")),
-            Token::RightRef => result.push_str(&format!("{} ", "right")),
-            _ => {}
-        }
-    }
-
-    result.trim().to_string()
-}
-
-pub fn evaluate_rpn(tokens: Vec<Token>, operators: &[Operator]) -> Result<Token, String> {
-    let mut stack = Vec::new();
-    let mut prefix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
-        HashMap::new();
-    let mut infix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
-        HashMap::new();
-    let mut postfix_map: HashMap<String, fn(&mut Vec<Token>, &mut HashMap<String, Token>)> =
-        HashMap::new();
-    let mut context: HashMap<String, Token> = HashMap::new();
-
-    for op in operators {
-        match op.op_type {
-            OperatorType::Prefix => {
-                prefix_map.insert(op.symbol.clone(), op.func);
-            }
-            OperatorType::Infix => {
-                infix_map.insert(op.symbol.clone(), op.func);
-            }
-            OperatorType::Postfix => {
-                postfix_map.insert(op.symbol.clone(), op.func);
-            }
-        }
-    }
-    let mut func_level = 0;
-    for token in tokens {
-        match token {
-            Token::Number(_) | Token::String(_) | Token::Variable(_) | Token::List(_) => {
-                stack.push(token)
-            }
-            Token::Operator(op, op_type) => match op_type {
-                OperatorType::Prefix => {
-                    if let Some(&func) = prefix_map.get(&op) {
-                        func(&mut stack, &mut context);
-                    } else {
-                        return Err(format!("Unknown prefix operator: {}", op));
-                    }
-                }
-                OperatorType::Infix => {
-                    if let Some(&func) = infix_map.get(&op) {
-                        func(&mut stack, &mut context);
-                    } else {
-                        return Err(format!("Unknown infix operator: {}", op));
-                    }
-                }
-                OperatorType::Postfix => {
-                    if let Some(&func) = postfix_map.get(&op) {
-                        func(&mut stack, &mut context);
-                    } else {
-                        return Err(format!("Unknown postfix operator: {}", op));
-                    }
-                }
-            },
-            Token::LeftBracket => {
-                func_level += 1;
-                // context.insert(String::from("left"), stack.last().clone().unwrap());
-            }
-            Token::RightBracket => {
-                //                 stack.pop();
-                func_level -= 1;
-            }
-            Token::LeftBrace => {
-                func_level += 1;
-            }
-            Token::RightBrace => {
-                func_level -= 1;
-            }
-            _ => return Err("Unexpected token".to_string()),
-        }
-    }
-
-    stack.pop().ok_or_else(|| "[]".to_string())
-}
-
-pub fn evaluate(expression: &str, operators: &[Operator]) -> Result<Token, String> {
-    let tokens = tokenize(expression, operators);
-    let rpn_tokens = shunting_yard(tokens, operators);
-    let result = evaluate_rpn(rpn_tokens, operators);
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn test_expression(expression: &str, expected: &str) {
-        let operators = get_standard_operators();
-
-        // Test addition
-        let tokens = tokenize(expression, &operators);
-        let rpn = shunting_yard(tokens, &operators);
-        let result = evaluate_rpn(rpn, &operators).unwrap();
+        let mut machine = Machine::new();
+        let result = machine.run(expression).unwrap();
         assert_eq!(
             result,
             Token::Number(BigDecimal::from_str(expected).unwrap())

@@ -1,5 +1,5 @@
 mod rpn;
-use rpn::{convert_to_rpn, evaluate, get_standard_operators, Operator, Token};
+use rpn::{Machine, Token};
 
 use clap::{Arg, Command, Subcommand};
 use std::fs::File;
@@ -48,11 +48,11 @@ fn main() {
         )
         .get_matches();
 
-    let operators = get_standard_operators();
+    let mut machine = Machine::new();
 
     match matches.subcommand() {
         Some(("repl", _)) => {
-            repl_mode(&operators);
+            repl_mode(machine);
         }
         Some(("build", _)) => {
             println!("Build command is not yet implemented.");
@@ -60,14 +60,14 @@ fn main() {
         Some(("rpn", sub_m)) => {
             let input = sub_m.get_one::<String>("input").unwrap();
             match read_input(input) {
-                Ok(content) => println!("{}", convert_to_rpn(&content, &operators)),
+                Ok(content) => println!("{}", machine.to_rpn(&content)),
                 Err(e) => eprintln!("Error reading input: {}", e),
             }
         }
         Some(("run", sub_m)) => {
             let input = sub_m.get_one::<String>("input").unwrap();
             match read_input(input) {
-                Ok(content) => print_result(evaluate(&content, &operators)),
+                Ok(content) => print_result(machine.run(&content)),
                 Err(e) => eprintln!("Error reading input: {}", e),
             }
         }
@@ -84,7 +84,7 @@ fn print_result(result: Result<Token, String>) {
     }
 }
 
-fn repl_mode(operators: &[Operator]) {
+fn repl_mode(mut machine: Machine) {
     println!("Enter REPL mode. Type 'exit' to leave.");
     let mut input = String::new();
     loop {
@@ -96,8 +96,7 @@ fn repl_mode(operators: &[Operator]) {
         if trimmed == "exit" {
             break;
         }
-        // println!("{}", convert_to_rpn(trimmed, operators));
-        let result = evaluate(trimmed, operators);
+        let result = machine.run(trimmed);
         print_result(result);
     }
 }
